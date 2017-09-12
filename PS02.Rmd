@@ -1,6 +1,6 @@
 ---
 title: "STAT/MATH 495: Problem Set 02"
-author: "WRITE YOUR NAMES HERE"
+author: "Vickie Ip and Leonard Yoon"
 date: "2017-09-19"
 output:
   html_document:
@@ -16,12 +16,89 @@ knitr::opts_chunk$set(echo = TRUE, fig.width=8, fig.height=4.5)
 
 # Load packages
 library(tidyverse)
+library(broom)
 
 # Note the relative file path, and not absolute file path:
 # http://www.coffeecup.com/help/articles/absolute-vs-relative-pathslinks/
 train <- read_csv("data/train.csv")
 ```
 
+```{r, include=FALSE}
+# Load some pre-computed data
+load(url("https://github.com/rudeboybert/STAT495/blob/master/static/splines.RData?raw=true"))
+
+# Here is a wacky function f(x)
+f <- function(x){
+  f_x <- 0.2*x^11*(10*(1-x))^6+10*(10*x)^3*(1-x)^10
+  return(f_x)
+}
+
+# For 500 equally spaced values of x between 0 & 1, let's compute and plot f(x) in red.
+# Recall that f(x) is the systematic component, or "the signal"
+values <- data_frame(
+  x = seq(from=0, to=1, length=500),
+  f_x = f(x)
+)
+values %>% 
+  ggplot(aes(x=x)) +
+  stat_function(fun = f, col="red", size=1)
+
+# We now add the unsystematic error component epsilon to f(x) i.e. the noise, to
+# obtain our y's, and hence our observed points in black (x, y)
+values <- values %>% 
+  mutate(
+    epsilon = rnorm(500, 0, sd = 2),
+    y = f_x + epsilon
+  )
+values %>% 
+  ggplot(aes(x=x)) +
+  stat_function(fun = f, col="red", size=1) +
+  geom_point(aes(y=y))
+
+# But remember in real life, we won't know the red curve! If we did, then why
+# are we doing any of this? All we observe are the black points. Let's "pretend"
+# like we don't know what the red curve is!
+values %>% 
+  ggplot(aes(x=x)) +
+  geom_point(aes(y=y))
+
+# We now fit a 'smoothing spline'. Think of it as a piece of string with a
+# specified amount of flexibility, where the flexibility is controlled by the
+# "degrees of freedom" df. This blue curve is a "guess/estimate" of the red
+# curve f(x), which recall, we are pretending we don't know. Also observe how we
+# use the broom::augment() function to convert the output of smooth.spline to
+# tidy data frame format.
+smooth.spline(values$x, values$y, df=5) %>%
+  broom::augment() %>% 
+  ggplot(aes(x=x)) +
+  geom_point(aes(y=y)) +
+  geom_line(aes(y=.fitted), col="blue", size=1)
+  
+# Play around with the df argument in smooth.spline() above.
+
+# Now let's compare smoothing splines using four different values of the degrees
+# of freedom in a plot I precomputed. Which do you think is best? 
+multiple_df
+
+# I would say that df=10 roughly is best. df=2 is not quite flexible enough,
+# where as df=50 seems to no longer fitting to signal (the true function f) and
+# is now fitting to noise. In other words, it is overfitting to this particular
+# data set.
+multiple_df + 
+  stat_function(fun = f, col="red", size=1)
+
+# Exercise. Here are a set of points from a different f(x) and epsilon. With
+# your finger trace what you think the true f(x) function looks like. In other
+# words, separate the signal from the noise!"
+exercise
+
+# Let's fit a spline with 25 degrees of freedom. How close is this to the truth?
+fitted
+
+# Ready? Here is the truth! How close were you? Note the noise is normal with mean 0 
+# and sd = 12!
+truth
+```
 
 # Exploratory Data Analysis
 
