@@ -55,66 +55,6 @@ favstats(train$log_price)
 
 The transformation helped to transform `price_doc` into a bell-shaped distribution. This is shown by the symmetry in the histogram. Note that outliers still exist and are easily spotted in the boxplot above.
 
-## Model Fit
-
-In order to find the variable that best predicts `price_doc`, we decided to create a function that ranks the variables based on their root mean squared log errors (RMSLE). The variable with the lowest RMSLE value will become the explanatory variable of our model.
-
-First, to create a model that avoids the Texas Shooter Fallacy, we decided to resample from the training set. We then removed data from the test set that had been resampled using the `anti_join` function.
-
-```{r}
-# Take resample to test our spline model
-test1 <- train[sample(1:nrow(train), nrow(train)*.2,
-  	replace=FALSE),]
-# Removing test set from training set in resample
-train1 <- anti_join(train, test1, by = "id")
-```
-
-Because the spline model only works with continuous integer variables, we decided to extract all the variables in a `numeric` or `integer` class and fit them into a data frame named `clas`. We only included variables with a maximum value greater than 50 because we wanted our explanatory variable to have a wide enough range.
-
-```{r}
-clas <- data_frame(class = sapply(train, class), name = names(train), min = sapply(train, min, na.rm=TRUE), max = as.numeric(sapply(train, max, na.rm=TRUE))) %>% filter(class == "integer", name!="id", max>50)
-```
-
-Next, we created a function named `spleen` that would take as input each variable from `clas` and then create a spline model that predicted `price_doc` for each variable. To ensure that the function ran smoothly, we filtered out all the missing values in the training set.
-
-To generate the RMSLE, we took the sum of squares of the differences of log predicted price and log actual price, then took the square root of that value.
-
-```{r}
-spleen <- function(var){
-  # Take variable (column) in data and filter out missing values
-  data <- train1 %>%
-    select_(var, "price_doc")
-  colnames(data) <- c("var", "price_doc")
-  data <- data %>% 
-    filter(!is.na(var))
-    mspline <- smooth.spline(data$var, data$price_doc, df=10) # creates spline model
-
-  # Predict price with spline model
-  newX <- test1 %>%
-    select_("id", var, "price_doc")
-  colnames(newX) <- c("id","var", "price_doc")
-  newX <- newX %>%
-    filter(!is.na(var))
-  output <- predict(mspline, newX$var) %>% 
-    tibble::as.tibble()
-
-  # Compare predicted price with actual price.  Sum total RMSLE
-  combined <- data_frame(id = newX$id, price_new = output$y, price_old = newX$price_doc)
-  combined <- combined %>% mutate(SE = (log(price_new+1)-log(price_old+1))^2) %>% summarise(RMSE = sqrt(mean(SE)), n = n(), variable = var) # root mean squared log error 
-
-  # New data frame contains variable name and score
-  return(combined)
-}
-```
-
-Next, we ranked all the continuous integer variables based on their RMSLE's and found out that `full_sq` had the lowest RMSLE!
-
-```{r}
-scores <- sapply(clas$name[c(1:22, 38:47, 51:55,58:71, 73:76, 78:82, 84:122)], spleen)
-df <- data.frame(matrix(unlist(scores), nrow=99, byrow=T),stringsAsFactors=FALSE) %>% arrange(X1)
-df[1,-2] # prints the variable with lowest RMSLE and prints its RMSLE
-```
-
 ## Exploratory Data Analysis (Explanatory Variable)
 
 `full_sq` is the total area in square meters of the property, including loggias, balconies and other non-residential areas. Let's do some exploratory analysis on the `full_sq` variable:
@@ -138,8 +78,77 @@ train %>%
   ggplot(aes(x = "", y = log_full)) + geom_boxplot() + theme_bw() + coord_flip() + labs(title = "Property's Total Log Area from Training Data", x = "", y = "Log Total Area (log square meters)")
 ```
 
-```{r, include = FALSE}
-# Create Submission File
+## Model Fit
+
+In order to find the variable that best predicts `price_doc`, we decided to create a function that ranks the variables based on their root mean squared log errors (RMSLE). The variable with the lowest RMSLE value will become the explanatory variable of our model.
+
+First, to create a model that avoids the Texas Shooter Fallacy, we decided to resample from the training set. We then removed data from the test set that had been resampled using the `anti_join` function.
+
+```{r}
+# Take resample to test our spline model
+test1 <- train[sample(1:nrow(train), nrow(train)*.2,
+  	replace=FALSE),]
+# Removing test set from training set in resample
+train1 <- anti_join(train, test1, by = "id")
+```
+
+Because the spline model only works with continuous integer variables, we decided to extract all the variables in a `numeric` or `integer` class and fit them into a data frame named `clas`. We only included variables with a maximum value greater than 50 because we wanted our explanatory variable to have a wide enough range.
+
+```{r, warning=FALSE}
+clas <- data_frame(class = sapply(train, class), name = names(train), min = sapply(train, min, na.rm=TRUE), max = as.numeric(sapply(train, max, na.rm=TRUE))) %>% filter(class == "integer", name!="id", max>50)
+```
+
+Next, we created a function named `spleen` that would take as input each variable from `clas` and then create a spline model that predicted `price_doc` for each variable. To ensure that the function ran smoothly, we filtered out all the missing values in the training set.
+
+To generate the RMSLE, we took the sum of squares of the differences of log predicted price and log actual price, then took the square root of that value.
+
+```{r}
+spleen <- function(var){
+  # Take variable (column) in data and filter out missing values
+  data <- train1 %>% 
+    select_(var, "price_doc")
+  colnames(data) <- c("var", "price_doc")
+  data <- data %>% 
+    filter(!is.na(var))
+  mspline <- smooth.spline(data$var, data$price_doc, cv=TRUE) # creates spline model
+
+  # Predict price with spline model
+  newX <- test1 %>% 
+    select_("id", var, "price_doc")
+  colnames(newX) <- c("id","var", "price_doc")
+  newX <- newX %>% 
+    filter(!is.na(var))
+  output <- predict(mspline, newX$var) %>% 
+    tibble::as.tibble()
+
+  # Compare predicted price with actual price.  Sum total RMSLE
+  combined <- data_frame(id = newX$id, price_new = output$y, price_old = newX$price_doc)
+  combined <- combined %>% 
+    mutate(SE = (log(price_new+1)-log(price_old+1))^2) %>% # root mean squared log error
+    summarise(RMSE = sqrt(mean(SE)), n = n(), variable = var, df = mspline$df)
+
+  # New data frame contains variable name, score and optimal df
+  return(combined)
+}
+```
+
+Next, we ranked all the continuous integer variables based on their RMSLE's and found out that `full_sq` had the lowest RMSLE!
+
+```{r}
+scores <- sapply(clas$name[c(1:22, 38:47, 51:55,58:71, 73:76, 78:82, 84:122)], spleen)
+df <- data.frame(matrix(unlist(scores), nrow=99, byrow=T),stringsAsFactors=FALSE) %>% arrange(X1)
+df[1,c(-2,-4)] # prints the variable with lowest RMSLE and prints its RMSLE
+```
+
+As a bonus, we can also print the optimal degrees of freedom from our function for each variable. In the case of full_sq, we would want to use df = 101. Since this was not a requirement for this problem set, we continue with df = 10 for this problem set.
+
+```{r}
+df[1,-2]
+```
+
+## Create Submission File
+
+```{r}
 mspline <- with(train1, smooth.spline(full_sq, price_doc, df=10))
 newX <- test %>%
   filter(!is.na(full_sq))%>%select(full_sq)
@@ -148,5 +157,3 @@ output <- predict(mspline, newX$full_sq) %>%
 submission <- data_frame(id = test$id, price_doc = output$y)
 write_csv(submission, "submission.csv")
 ```
-
-
