@@ -1,7 +1,7 @@
 ---
 title: "STAT 495: Problem Set 02"
 author: "Vickie Ip, Brendan Seto and Leonard Yoon"
-date: "2017-09-19"
+date: "2017-09-21"
 output:
   html_document:
     toc: true
